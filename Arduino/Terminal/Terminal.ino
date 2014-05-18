@@ -21,86 +21,41 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+#include <nRF905.h>
 #include <SPI.h>
-#include <Mirf.h>
-#include <nRF24L01.h>
-#include <MirfHardwareSpiDriver.h>
+class MeasurementData
+{
+public:
+  byte sensorID;
+  unsigned long timestamp;
+  unsigned int measurementID;
+  int sensorValue;
+  byte iteration;
+};
 
 
-const uint8_t ESCAPE = 0x7D;
-const uint8_t ESCAPE1 = 0x7E;
-const uint8_t ESCAPE_S[] = {ESCAPE, ESCAPE1};
-const uint8_t START = 0xAA;
-const uint8_t END = 0xBB;
-const uint8_t START_S[] = {ESCAPE, START};
-const uint8_t END_S[] = {ESCAPE, END};
-
-//#define SERIAL_SEND_ARRAY(arr, len) Serial.write(arr, len)
-//#define SERIAL_SEND_BYTE(b) Serial.write((uint8_t)b)
-//#define DEBUG_OUT(x)
-#define SERIAL_SEND_ARRAY(arr, len)
-#define SERIAL_SEND_BYTE(b)
 #define DEBUG_OUT(x) Serial.println(x)
+#define RXADDR {0x58, 0x6F, 0x2E, 0x10} // Address of this device (4 bytes)
+#define TXADDR {0xFE, 0x4C, 0xA6, 0xE5} // Address of device to send to (4 bytes)
 
-unsigned int writeRaw(const uint8_t* data, unsigned int len, unsigned int crc)
-{  
-  for(int i = 0;i<len;i++)
-  {
-    uint8_t d = data[i];
-    crc += (d & 0xFF);
-    crc = crc & 0xFF;
-    if (d == ESCAPE)
-      SERIAL_SEND_ARRAY(ESCAPE_S, 2);
-    else
-      SERIAL_SEND_BYTE(d);
-  }
-  return crc;
-}
-void writeStart()
-{
-  SERIAL_SEND_ARRAY(START_S, 2);
-}
-void writeEnd()
-{
-  SERIAL_SEND_ARRAY(END_S, 2);
-}
-void sendFrame(const uint8_t* data, unsigned int len)
-{
-  writeStart();
-  int crc = writeRaw(data, len, 0);
-  SERIAL_SEND_BYTE(crc);
-  writeEnd();
-}
 
 void setup(){
   Serial.begin(9600);
-  Mirf.spi = &MirfHardwareSpi;
-  Mirf.init();
-  Mirf.setRADDR((byte *)"serv1");
-  Mirf.payload = sizeof(int);
-  Mirf.config();
-  Mirf.configRegister(SETUP_RETR, 0xFF);
-  Mirf.configRegister(RF_SETUP, 0x06);  
+  
+  nRF905_init();
+  byte addr[] = RXADDR;
+  nRF905_setRXAddress(addr);
+  nRF905_setPayloadSize(sizeof(MeasurementData));	
+  nRF905_receive();
 }
 
 void loop(){
-  byte data[Mirf.payload];
-  uint8_t payload[sizeof(int)*4];
-  int zero = 0;
-  for(int i = 0;i<4;i++)
-  {
-      memcpy(&payload[i*sizeof(int)], &zero, sizeof(int));
-  }
-  if(!Mirf.isSending() && Mirf.dataReady()){
-    int sensorValue;    
-    char clientAddress[6];
-    clientAddress[5] = 0;
-    unsigned long time;
-    Mirf.getData(data);
-    memcpy((byte *)&sensorValue, data, sizeof(int));
-    DEBUG_OUT("Sensor Value:");
-    DEBUG_OUT(sensorValue);
-    memcpy(&payload[0], &sensorValue, sizeof(int));
-    sendFrame(payload, sizeof(int)*4);
-  }
+  Serial.println(F("Waiting for data..."));
+  MeasurementData measurementData;
+  while(!nRF905_getData((byte*)&measurementData, sizeof(MeasurementData)));
+  Serial.println(F("Got measurement"));
+  Serial.println(measurementData.sensorValue);
+  Serial.println(measurementData.measurementID);
+  Serial.println(measurementData.iteration);
+  Serial.println(measurementData.timestamp);
 }
