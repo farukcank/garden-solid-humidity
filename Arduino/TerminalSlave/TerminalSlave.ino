@@ -23,6 +23,7 @@ SOFTWARE.
 */
 #include <nRF905.h>
 #include <SPI.h>
+#include <Wire.h>
 class MeasurementData
 {
 public:
@@ -33,6 +34,9 @@ public:
   byte iteration;
 };
 
+MeasurementData currentMeasurementData;
+boolean currentMeasurementDataWasSet;
+boolean currentMeasurementDataWasSent;
 
 #define DEBUG_OUT(x) Serial.println(x)
 #define RXADDR {0x58, 0x6F, 0x2E, 0x10} // Address of this device (4 bytes)
@@ -40,22 +44,41 @@ public:
 
 
 void setup(){
-  Serial.begin(9600);
+  Wire.begin(2);
+  Wire.onRequest(requestEvent);
   
   nRF905_init();
   byte addr[] = RXADDR;
   nRF905_setRXAddress(addr);
   nRF905_setPayloadSize(sizeof(MeasurementData));	
   nRF905_receive();
+  currentMeasurementDataWasSent = false;
+  currentMeasurementDataWasSet = false;
 }
 
 void loop(){
-  Serial.println(F("Waiting for data..."));
   MeasurementData measurementData;
   while(!nRF905_getData((byte*)&measurementData, sizeof(MeasurementData)));
-  Serial.println(F("Got measurement"));
-  Serial.println(measurementData.sensorValue);
-  Serial.println(measurementData.measurementID);
-  Serial.println(measurementData.iteration);
-  Serial.println(measurementData.timestamp);
+  if (!currentMeasurementDataWasSet || currentMeasurementData.measurementID != measurementData.measurementID)
+  {
+    currentMeasurementDataWasSet=true;
+    currentMeasurementDataWasSent=false;
+    currentMeasurementData = measurementData;
+  }
+}
+
+void requestEvent()
+{
+  byte response[sizeof(MeasurementData)+1];  
+  if (!currentMeasurementDataWasSent && currentMeasurementDataWasSet)
+  {
+    response[0] = 0x01;
+    currentMeasurementDataWasSent = true;
+  }
+  else
+  {
+    response[0] = 0x00;
+  }
+  memcpy(&response[1], (byte*)&currentMeasurementData, sizeof(MeasurementData));
+  Wire.write(response, sizeof(response));
 }
