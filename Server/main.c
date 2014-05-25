@@ -28,7 +28,7 @@
 #include "MQTTClient.h"
 #include <time.h>
 #include <curl/curl.h>
-
+#include <log4c.h>
 
 #define ADDRESS     	"tcp://95.85.36.115:1883"
 #define CLIENTID    	"gardenSoilHumidityServer"
@@ -36,11 +36,11 @@
 #define SUBSCRIBE_TOPIC "gardenSoilHumidityMeasurementResult"
 #define QOS         1
 #define TIMEOUT     10000L
-#define INTERVAL 	20
+#define INTERVAL 	60
 
 volatile int connected = 0;
 volatile MQTTClient_deliveryToken deliveredtoken;
-
+log4c_category_t* mycat = NULL;
 void sendData(char* data)
 {
 	char url[2048];
@@ -54,7 +54,7 @@ void sendData(char* data)
 		curl_easy_setopt(curlHandle, CURLOPT_URL, url);
 		CURLcode curlErr = curl_easy_perform(curlHandle);
 		if(curlErr) {
-			printf("%s\n", curl_easy_strerror(curlErr));
+			log4c_category_log(mycat, LOG4C_PRIORITY_ERROR, "curl error %s", curl_easy_strerror(curlErr));
 		}
 		curl_global_cleanup();
 	}
@@ -62,39 +62,27 @@ void sendData(char* data)
 
 void delivered(void *context, MQTTClient_deliveryToken dt)
 {
-    printf("Message with token value %d delivery confirmed\n", dt);
+    log4c_category_log(mycat, LOG4C_PRIORITY_NOTICE, "Message with token value %d delivery confirmed", dt);
     deliveredtoken = dt;
 }
 
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
 {
     int i;
-    char* payloadptr;
-
-    printf("Message arrived\n");
-    printf("     topic: %s\n", topicName);
-    printf("   message: ");	
-    payloadptr = message->payload;
-    for(i=0; i<message->payloadlen; i++)
-    {
-        putchar(*payloadptr++);
-    }
-    putchar('\n');
     char* data = malloc(message->payloadlen+1);
 	memcpy(data, message->payload, message->payloadlen);
 	data[message->payloadlen] = 0;    
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
+    log4c_category_log(mycat, LOG4C_PRIORITY_NOTICE, "Message arrived topic: %s message: %s",topicName,data);
     sendData(data);
     free(data);
-    printf("\n");
     return 1;
 }
 
 void connlost(void *context, char *cause)
 {
-    printf("\nConnection lost\n");
-    printf("     cause: %s\n", cause);
+	log4c_category_log(mycat, LOG4C_PRIORITY_ERROR, "Connection lost cause: %s", cause);
     connected=0;
 }
 
@@ -115,7 +103,7 @@ int connectToServer()
 
     if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
     {
-        printf("Failed to connect, return code %d\n", rc);        
+        log4c_category_log(mycat, LOG4C_PRIORITY_ERROR, "Failed to connect, return code %d", rc);        
     }
     else{
     MQTTClient_subscribe(client, SUBSCRIBE_TOPIC, QOS);
@@ -134,8 +122,7 @@ int connectToServer()
         pubmsg.retained = 0;
         deliveredtoken = 0;
         MQTTClient_publishMessage(client, PUBLISH_TOPIC, &pubmsg, &token);
-        printf("Waiting for publication of %s\n"
-                "on topic %s for client with ClientID: %s\n",
+        log4c_category_log(mycat, LOG4C_PRIORITY_NOTICE, "Waiting for publication of %s on topic %s for client with ClientID: %s",
                 buffer, PUBLISH_TOPIC, CLIENTID);
         while(deliveredtoken != token);
     }
@@ -147,6 +134,12 @@ int connectToServer()
 
 int main(int argc, char* argv[])
 {
+	if (log4c_init()){
+   		printf("log4c_init() failed\n");
+		exit(-1);
+  	}
+	mycat = log4c_category_get("com.eclipseuzmani.gardensoilhumidity");
+	log4c_category_log(mycat, LOG4C_PRIORITY_NOTICE, "Starting...");
 	while(1){
 		connectToServer();
 	}
