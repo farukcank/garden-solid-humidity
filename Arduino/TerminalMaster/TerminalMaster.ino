@@ -27,7 +27,10 @@ SOFTWARE.
 #include <PubSubClient.h>
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 
-IPAddress ip(192,168,1,8);
+IPAddress ipAddress(192,168,1,8);
+IPAddress dnsAddress(192,168,1,1);
+IPAddress gatewayAddress(192,168,1,1);
+IPAddress subnet(255,255,255,0);
 byte server[] = { 95,85,36,115 };
 
 EthernetClient ethClient;
@@ -53,33 +56,23 @@ boolean connectToServer()
   Serial.println("Failed to connect to server.");
   return false;
 }
-boolean dhcpSetupSuccessfull=false;
 void setup(){
   digitalWrite(resetPin, HIGH);
   pinMode(resetPin, OUTPUT);
   
   Serial.begin(9600);
   Wire.begin();
-  Serial.println("Configuring Ethernet using DHCP...");
-  if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to configure Ethernet using DHCP.");
-    delay(1000);
-    digitalWrite(resetPin, LOW);
-  }
+  //Serial.println("Configuring Ethernet using DHCP...");
+  //if (Ethernet.begin(mac) == 0) {
+  //  Serial.println("Failed to configure Ethernet using DHCP.");
+    //delay(1000);
+    //digitalWrite(resetPin, LOW);
+    Ethernet.begin(mac,ipAddress,dnsAddress,gatewayAddress,subnet);
+  //}
 }
 long delayDuration = 500;
 long failureCount = 0;
 void loop(){
-  if (!dhcpSetupSuccessfull){
-    Serial.println("Configuring Ethernet using DHCP...");
-    if (Ethernet.begin(mac) == 0) {
-      Serial.println("Failed to configure Ethernet using DHCP.");
-    }else{
-      Serial.println("Configured Ethernet using DHCP.");
-      dhcpSetupSuccessfull=true;
-    }
-    return;
-  }
   if (!client.connected()){
     if (failureCount>15)
       digitalWrite(resetPin, LOW);
@@ -91,10 +84,6 @@ void loop(){
     failureCount ++;
     if (delayDuration > 60000)
       delayDuration = 60000;
-      if (failureCount % 4 == 0){
-        Serial.println("Reconfiguring Ethernet using DHCP...");
-        Ethernet.maintain();
-      }
     connectToServer();
   }else{    
     delayDuration = 500;
@@ -124,18 +113,25 @@ byte* readMeasurement()
   }
 }
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.println(topic);
-  MeasurementData* m = (MeasurementData*)readMeasurement();  
-  if (m){
-    char buffer[128];
-    char h[16];
-    dtostrf(m->sensorValue, 5, 2, h);
-    sprintf(buffer, "{\"sensor1\":%s}", h);
-    client.publish("gardenSoilHumidityMeasurementResult",buffer);
-    Serial.println(buffer);
-    delete m;
-  }
-  else{
-    client.publish("gardenSoilHumidityMeasurementResult","{}");    
+  if (length<20){
+    char data[20];
+    memcpy(data,payload,length);
+    data[length]=0;
+    Serial.println(topic);
+    MeasurementData* m = (MeasurementData*)readMeasurement();  
+    if (m){
+      char buffer[128];
+      char h[16];
+      dtostrf(m->sensorValue, 0, 0, h);
+      sprintf(buffer, "%s:%s",data, h);
+      client.publish("gardenSoilHumidityMeasurementResult",buffer);
+      Serial.println(buffer);
+      delete m;
+    }
+    else{
+      char buffer[128];
+      sprintf(buffer, "%s",data);
+      client.publish("gardenSoilHumidityMeasurementResult",buffer);    
+    }
   }
 }
